@@ -1,9 +1,7 @@
 #!/usr/bin/python3.4
 # -*- coding: utf-8 -*-
 import cherrypy
-import config
 import telebot
-import main
 import time
 import threading
 import json
@@ -12,11 +10,27 @@ import codecs
 import logging
 import connect_to_base
 from bs4 import BeautifulSoup
+
+import config
+import main
 delay = config.delay
 check = {}
 captcha = {}
 login_g = {}
 session = {}
+
+
+text_messages = {
+    'welcome':
+        u'Привет!\n'
+        u'Этот бот проверяет твои оценки, и в случае если тебе пришла новая шлет их тебе🙂\n'
+        u'Чтобы начать просто введи через пробел свои логин и пароль\n'
+        u'Надеюсь тебе здесь понравится!😉',
+    'start':
+        u'Чтобы увидеть все оценки еще раз введи /all'
+}
+
+
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -31,11 +45,11 @@ logger.addHandler(ch)
 logger.warning('Start The Bot')
 
 WEBHOOK_HOST = config.ip
-WEBHOOK_PORT = 443  # 443, 80, 88 или 8443 (порт должен быть открыт!)
-WEBHOOK_LISTEN = '0.0.0.0'  # На некоторых серверах придется указывать такой же IP, что и выше
+WEBHOOK_PORT = 443
+WEBHOOK_LISTEN = '0.0.0.0'
 
-WEBHOOK_SSL_CERT = './webhook_cert.pem'  # Путь к сертификату
-WEBHOOK_SSL_PRIV = './webhook_pkey.pem'  # Путь к приватному ключу
+WEBHOOK_SSL_CERT = './webhook_cert.pem'
+WEBHOOK_SSL_PRIV = './webhook_pkey.pem'
 
 WEBHOOK_URL_BASE = "https://%s:%s" % (WEBHOOK_HOST, WEBHOOK_PORT)
 WEBHOOK_URL_PATH = "/%s/" % config.token
@@ -56,6 +70,11 @@ class WebhookServer(object):
             return ''
         else:
             raise cherrypy.HTTPError(403)
+
+
+@bot.message_handler(commands=["start"])
+def welcome(message):
+    bot.send_message(message.chat.id, text_messages['welcome'])
 
 
 def check_the_school(message):
@@ -201,7 +220,7 @@ def captcha_check(message):
         logging.exception(e)
 
 
-@bot.message_handler(regexp="all")
+@bot.message_handler(commands=["all"])
 def print_all(id_our):
     global login_g
     if type(id_our) == telebot.types.Message:
@@ -217,39 +236,41 @@ def print_all(id_our):
         bot.send_message(id_our, 'Войдите, прежде чем получите список оценок')
 
 
-@bot.message_handler(regexp="(?i)^start [a-zA-Z0-9.]+ [a-zA-Z0-9]+$")
+@bot.message_handler(regexp="(?i)^[a-zA-Z0-9.]+ [a-zA-Z0-9]+$")
 def handle_message(message):
     global login_g, check, session, captcha
     if str(message.chat.id) in login_g:
         stop_message(message)
     message_copy = str(message.text).split(' ')
+    print(message_copy)
     url = 'https://login.school.mosreg.ru/user/login'
     try:
         session[str(message.chat.id)] = requests.Session()
-        session[str(message.chat.id)].post(url, data={'login': message_copy[1], 'password': message_copy[2]})
+        session[str(message.chat.id)].post(url, data={'login': message_copy[0], 'password': message_copy[1]})
         check_the_school(message.chat.id)
-        do_something(str(message.chat.id), message_copy[1])
+        do_something(str(message.chat.id), message_copy[0])
     except TypeError as e:
-        logging.warning('Wrong Pass ' + message_copy[1])
+        logging.warning('Wrong Pass ' + message_copy[0])
         bot.send_message(message.chat.id, 'Неверный логин или пароль')
         logging.exception(e)
     except AttributeError as e:
-        logging.warning('Wrong Pass ' + message_copy[1])
-        r = session[str(message.chat.id)].post(url, data={'login': message_copy[1], 'password': message_copy[2]})
+        logging.warning('Wrong Pass ' + message_copy[0])
+        r = session[str(message.chat.id)].post(url, data={'login': message_copy[0], 'password': message_copy[1]})
         bot.send_photo(str(message.chat.id), json.loads(r.text)['captchaUrl'])
         check[str(message.chat.id)] = False
-        captcha[str(message.chat.id)] = {json.loads(r.text)['captchaCode']: message_copy[1] + ' ' + message_copy[2]}
+        captcha[str(message.chat.id)] = {json.loads(r.text)['captchaCode']: message_copy[0] + ' ' + message_copy[1]}
         logging.exception(e)
     else:
-        logging.warning('New user ' + message_copy[1])
+        logging.warning('New user ' + message_copy[0])
         check[message.chat.id] = True
-        login_g[str(message.chat.id)] += ' ' + message_copy[1] + ' ' + message_copy[2]
+        login_g[str(message.chat.id)] += ' ' + message_copy[0] + ' ' + message_copy[1]
         connect_to_base.save(login_g)
         print_all(message.chat.id)
         bot.send_message(message.chat.id, 'Начало проверки')
+        bot.send_message(message.chat.id, text_messages['start'])
         p1 = threading.Thread(target=start_timer, name='tp%s' % message.chat.id, kwargs={
             "message": message.chat.id,
-            "login": message_copy[1]})
+            "login": message_copy[0]})
         p1.start()
 
 
@@ -260,7 +281,7 @@ def read_file(filename):
     return text
 
 
-@bot.message_handler(regexp="stop")
+@bot.message_handler(commands=["stop"])
 def stop_message(message):
     global check, login_g
     logging.warning("Stop " + login_g[str(message.chat.id)].split(' ')[1])
@@ -288,12 +309,11 @@ def start():
 
 
 bot.remove_webhook()
-
-# Ставим заново вебхук
 bot.set_webhook(url=WEBHOOK_URL_BASE + WEBHOOK_URL_PATH,
                 certificate=open(WEBHOOK_SSL_CERT, 'r'))
+start()
 
-# Указываем настройки сервера CherryPy
+
 cherrypy.config.update({
     'server.socket_host': WEBHOOK_LISTEN,
     'server.socket_port': WEBHOOK_PORT,
@@ -301,6 +321,4 @@ cherrypy.config.update({
     'server.ssl_certificate': WEBHOOK_SSL_CERT,
     'server.ssl_private_key': WEBHOOK_SSL_PRIV
 })
-start()
-# Собственно, запуск!
 cherrypy.quickstart(WebhookServer(), WEBHOOK_URL_PATH, {'/': {}})
