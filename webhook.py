@@ -5,7 +5,6 @@ import config
 import telebot
 import main
 import time
-import datetime
 import threading
 import json
 import requests
@@ -18,7 +17,18 @@ check = {}
 captcha = {}
 login_g = {}
 session = {}
-print('Thank you for start the bot, Bitch')
+logger = logging.getLogger()
+logger.setLevel(logging.WARNING)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+fh = logging.FileHandler('log_bot.txt')
+fh.setLevel(logging.INFO)
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+ch = logging.StreamHandler()
+ch.setLevel(logging.WARNING)
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+logger.warning('Start The Bot')
 
 WEBHOOK_HOST = config.ip
 WEBHOOK_PORT = 443  # 443, 80, 88 или 8443 (порт должен быть открыт!)
@@ -108,22 +118,21 @@ def do_something(message, login):
         time.sleep(0.01)
         soobshenie = messages(message, login)
     except TypeError as e:
-        print(datetime.datetime.now().strftime('%d.%m.%Y %H:%M') + ' Ебучие ошибки ' + login_g[message].split(' ')[1])
+        logging.exception(e)
         url = 'https://login.school.mosreg.ru/user/login'
         session[message] = requests.Session()
         session[message].post(url, data={'login': login_g[message].split(' ')[1],
                                          'password': login_g[message].split(' ')[2]})
-        print(e)
     except AttributeError as e:
-        print(datetime.datetime.now().strftime('%d.%m.%Y %H:%M') + ' Ебучие ошибки ' + login_g[message].split(' ')[1])
         url = 'https://login.school.mosreg.ru/user/login'
         session[message] = requests.Session()
         r = session[message].post(url, data={'login': login_g[message].split(' ')[1],
                                              'password': login_g[message].split(' ')[2]})
+        logging.info(r.text)
         bot.send_photo(message, json.loads(r.text)['captchaUrl'])
         check[message] = False
         captcha[message] = {json.loads(r.text)['captchaCode']: ''}
-        print(e)
+        logging.exception(e)
     except Exception as e:
         logging.exception(e)
         url = 'https://login.school.mosreg.ru/user/login'
@@ -170,7 +179,7 @@ def captcha_check(message):
                 bot.send_message(message.chat.id, 'Ввод верный')
                 start_timer(str(message.chat.id), login_g[str(message.chat.id)].split(' ')[1])
             else:
-                print(json.loads(r.text))
+                logging.info(json.loads(r.text))
         elif cap[1] != '':
             url = 'https://login.school.mosreg.ru/user/login'
             session[str(message.chat.id)] = requests.Session()
@@ -179,7 +188,7 @@ def captcha_check(message):
                                                               'captchaCode': cap[0], 'captcha': message.text})
             if json.loads(r.text).get('returnUrl'):
                 check_the_school(message.chat.id)
-                print('New user ' + cap[1].split(' ')[0])
+                logging.warning('New user ' + cap[1].split(' ')[0])
                 check[message.chat.id] = True
                 login_g[str(message.chat.id)] += ' ' + cap[1].split(' ')[0] + ' ' + cap[1].split(' ')[1]
                 connect_to_base.save(login_g)
@@ -187,7 +196,7 @@ def captcha_check(message):
                 bot.send_message(message.chat.id, 'Начало проверки')
                 start_timer(message.chat.id, cap[1].split(' ')[0])
             else:
-                print(json.loads(r.text))
+                logging.info(json.loads(r.text))
     except Exception as e:
         logging.exception(e)
 
@@ -221,18 +230,18 @@ def handle_message(message):
         check_the_school(message.chat.id)
         do_something(str(message.chat.id), message_copy[1])
     except TypeError as e:
-        print('Wrong Pass ' + message_copy[1])
+        logging.warning('Wrong Pass ' + message_copy[1])
         bot.send_message(message.chat.id, 'Неверный логин или пароль')
-        print(e)
+        logging.exception(e)
     except AttributeError as e:
-        print('Wrong Pass ' + message_copy[1])
+        logging.warning('Wrong Pass ' + message_copy[1])
         r = session[str(message.chat.id)].post(url, data={'login': message_copy[1], 'password': message_copy[2]})
         bot.send_photo(str(message.chat.id), json.loads(r.text)['captchaUrl'])
         check[str(message.chat.id)] = False
         captcha[str(message.chat.id)] = {json.loads(r.text)['captchaCode']: message_copy[1] + ' ' + message_copy[2]}
-        print(e)
+        logging.exception(e)
     else:
-        print('New user ' + message_copy[1])
+        logging.warning('New user ' + message_copy[1])
         check[message.chat.id] = True
         login_g[str(message.chat.id)] += ' ' + message_copy[1] + ' ' + message_copy[2]
         connect_to_base.save(login_g)
@@ -254,7 +263,7 @@ def read_file(filename):
 @bot.message_handler(regexp="stop")
 def stop_message(message):
     global check, login_g
-    print("Stop " + login_g[str(message.chat.id)].split(' ')[1])
+    logging.warning("Stop " + login_g[str(message.chat.id)].split(' ')[1])
     bot.send_message(message.chat.id, 'Остановка проверки')
     check[message.chat.id] = False
     connect_to_base.delete(message.chat.id, login_g[str(message.chat.id)])
@@ -266,7 +275,7 @@ def start():
     global login_g
     login_g = connect_to_base.start()
     for item in login_g:
-        print('New user ' + login_g[item].split(' ')[1])
+        logging.warning('New user ' + login_g[item].split(' ')[1])
         check[item] = True
         url = 'https://login.school.mosreg.ru/user/login'
         time.sleep(0.01)
