@@ -130,13 +130,11 @@ def do_something(message, login):
     global login_g, check
     try:
         if not check[message]:
-            print('HUra')
             return
     except KeyError:
         pass
     try:
         time.sleep(0.01)
-
         soobshenie = messages(message, login)
     except TypeError as e:
         logging.exception(e)
