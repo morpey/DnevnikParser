@@ -130,11 +130,13 @@ def do_something(message, login):
     global login_g, check
     try:
         if not check[message]:
+            print('HUra')
             return
     except KeyError:
         pass
     try:
         time.sleep(0.01)
+
         soobshenie = messages(message, login)
     except TypeError as e:
         logging.exception(e)
@@ -148,10 +150,13 @@ def do_something(message, login):
         r = session[message].post(url, data={'login': login_g[message].split(' ')[1],
                                              'password': login_g[message].split(' ')[2]})
         logging.info(r.text)
-        bot.send_photo(message, json.loads(r.text)['captchaUrl'])
-        check[message] = False
-        captcha[message] = {json.loads(r.text)['captchaCode']: ''}
-        logging.exception(e)
+        capt = json.loads(r.text).get('captchaUrl')
+        if capt:
+            bot.send_photo(message, capt)
+            check[message] = False
+            captcha[message] = {json.loads(r.text)['captchaCode']: ''}
+        else:
+            logging.exception(e)
     except Exception as e:
         logging.exception(e)
         url = 'https://login.school.mosreg.ru/user/login'
@@ -198,23 +203,30 @@ def captcha_check(message):
                 bot.send_message(message.chat.id, 'Ввод верный')
                 start_timer(str(message.chat.id), login_g[str(message.chat.id)].split(' ')[1])
             else:
+                bot.send_message(message.chat.id, 'Неверный ввод капчи или пароля\nВведите логин и пароль еще раз')
                 logging.info(json.loads(r.text))
-        elif cap[1] != '':
+        else:
             url = 'https://login.school.mosreg.ru/user/login'
             session[str(message.chat.id)] = requests.Session()
             r = session[str(message.chat.id)].post(url, data={'login': cap[1].split(' ')[0],
                                                               'password': cap[1].split(' ')[1],
                                                               'captchaCode': cap[0], 'captcha': message.text})
             if json.loads(r.text).get('returnUrl'):
+                check[str(message.chat.id)] = True
                 check_the_school(message.chat.id)
+                do_something(str(message.chat.id), cap[1].split(' ')[0])
                 logging.warning('New user ' + cap[1].split(' ')[0])
-                check[message.chat.id] = True
                 login_g[str(message.chat.id)] += ' ' + cap[1].split(' ')[0] + ' ' + cap[1].split(' ')[1]
                 connect_to_base.save(login_g)
                 print_all(message.chat.id)
                 bot.send_message(message.chat.id, 'Начало проверки')
-                start_timer(message.chat.id, cap[1].split(' ')[0])
+                bot.send_message(message.chat.id, text_messages['start'])
+                p1 = threading.Thread(target=start_timer, name='tp%s' % message.chat.id, kwargs={
+                    "message": message.chat.id,
+                    "login": cap[1].split(' ')[0]})
+                p1.start()
             else:
+                bot.send_message(message.chat.id, 'Неверный ввод капчи или пароля\n Введите логин и пароль еще раз')
                 logging.info(json.loads(r.text))
     except Exception as e:
         logging.exception(e)
@@ -242,7 +254,6 @@ def handle_message(message):
     if str(message.chat.id) in login_g:
         stop_message(message)
     message_copy = str(message.text).split(' ')
-    print(message_copy)
     url = 'https://login.school.mosreg.ru/user/login'
     try:
         session[str(message.chat.id)] = requests.Session()
@@ -256,13 +267,19 @@ def handle_message(message):
     except AttributeError as e:
         logging.warning('Wrong Pass ' + message_copy[0])
         r = session[str(message.chat.id)].post(url, data={'login': message_copy[0], 'password': message_copy[1]})
-        bot.send_photo(str(message.chat.id), json.loads(r.text)['captchaUrl'])
-        check[str(message.chat.id)] = False
-        captcha[str(message.chat.id)] = {json.loads(r.text)['captchaCode']: message_copy[0] + ' ' + message_copy[1]}
-        logging.exception(e)
+        logging.info(json.loads(r.text))
+        capt = json.loads(r.text).get('captchaUrl')
+        if capt:
+            bot.send_photo(str(message.chat.id), capt)
+            check[str(message.chat.id)] = False
+            captcha[str(message.chat.id)] = {json.loads(r.text)['captchaCode']: message_copy[0] + ' ' + message_copy[1]}
+        else:
+            bot.send_message(message.chat.id, 'Неверный логин или пароль')
+            logging.info(json.loads(r.text))
+            logging.exception(e)
     else:
         logging.warning('New user ' + message_copy[0])
-        check[message.chat.id] = True
+        check[str(message.chat.id)] = True
         login_g[str(message.chat.id)] += ' ' + message_copy[0] + ' ' + message_copy[1]
         connect_to_base.save(login_g)
         print_all(message.chat.id)
