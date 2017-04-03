@@ -177,7 +177,7 @@ def do_something(message, login):
 
 def start_timer(message, login):
     global check
-    while check[message]:
+    while check[str(message)]:
         time.sleep(delay)
         thread = threading.Thread(target=do_something, name='t%s' % message, kwargs={'message': message,
                                                                                      'login': login})
